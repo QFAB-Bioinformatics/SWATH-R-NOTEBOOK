@@ -1,0 +1,152 @@
+---
+title: "Differentially expressed protein analysis of SWATH data using R"
+output: html_notebook
+---
+
+This worflow shows how to process data from SWATH-MS protein quantification, in order to study differential expression of the proteins between the different conditions.
+
+The data in this example come from : Bjelosevic S, Pascovici D, Ping H, et.al. Quantitative age-specific variability of plasma proteins in healthy neonates, children and adults. Molecular & Cellular Proteomics (March 23 2017)
+
+#1. loading and visualizing the data 
+```{r}
+data<-read.table("SWATH.example.data.csv", sep=",",header=T, row.names = 1)
+data
+boxplot(data, ylab="Intensity", xlab="samples") 
+hist(as.numeric(unlist(data)), main = "Histogram of Intensity distribution",  xlab = "Intensity")
+```
+
+#2. log transform
+The data is log transformed so that:  
+-the spread is even across the intensity range  
+-the variability stays constant at all intensity levels  
+-the distribution of experimental errors is normal  
+-the distribution of intensity is bell shaped  
+
+```{r}
+data <- log2(data)
+boxplot(data, ylab="Intensity", xlab="samples") 
+hist(as.numeric(unlist(data)), main = "Histogram of Intensity distribution",  xlab = "Intensity")
+```
+
+#3. Normalization
+
+```{r}
+norm.data <- scale(data) ## center and scaling normalization
+boxplot(norm.data, ylab="Intensity", xlab="samples")
+
+```
+
+
+#4. Differential expression annalysis
+##4.1 experimental design
+
+In order to perform the pairwise comparison we need to define the experimental design :  
+- the design matrix generated with model.matrix(), which identify which sample belong to which condition.  
+- the contrast matrix generated with makeContrasts(), which define the comparison to perform between the different condition.
+
+
+```{r}
+#for this specific data :
+exp.design <- data.frame(samples = colnames(data), condition = 1)
+exp.design$condition[1:10] = "control"
+exp.design$condition[11:20] = "lessone"
+exp.design$condition[21:30] = "onetofive"
+exp.design$condition[31:40] = "adult"
+
+design <- model.matrix(~0 + exp.design$condition, data = exp.design)
+colnames(design) <- sort(unique(exp.design$condition))
+row.names(design) <- exp.design$samples
+as.data.frame(design)
+
+library(limma)
+contrast <- makeContrasts(adult-control, lessone-control, onetofive-control, adult+lessone+onetofive-control, levels=design)
+as.data.frame(contrast)
+```
+
+##4.2 Fold change and statistical test calcul
+
+```{r}
+  ## in this example there are four pairwise comparaison to perform:  
+
+
+  nbComp<-ncol(contrast)
+  fc <- list()
+  p.value <- list()
+  adjust.p.value<-list()
+  Results<-list() ## a list of data frames containing the results
+  
+  for (i in 1:nbComp){
+    
+    op<-row.names(contrast)[contrast[,i] == 1 ]
+    ref<-row.names(contrast)[contrast[,i] == -1 ]
+    
+    samplesop <- row.names(design)[row(as.matrix(design[,op]))[design[,op]==1]]
+    samplesref <- row.names(design)[row(as.matrix(design[,ref]))[design[,ref]==1]]
+    
+    colop <- which(colnames(norm.data) %in% samplesop)
+    colref <- which(colnames(norm.data) %in% samplesref)
+    
+    p.value[[i]]<-apply(norm.data,1,function(x){t.test(as.numeric(x[colref]),as.numeric(x[colop]), alternative = "t") $p.value})
+    adjust.p.value[[i]]<-p.adjust(p.value[[i]], method = "BH")
+    
+    fc[[i]]<-rowMeans(norm.data[,colop])-rowMeans(norm.data[,colref])
+    
+    Results[[i]]<-data.frame(protein=c(row.names(norm.data)))
+    Results[[i]][paste("p.value.",colnames(contrast)[i],sep="")]=c(p.value[[i]])
+    Results[[i]][paste("adjust.p.value.",colnames(contrast)[i],sep="")]=c(adjust.p.value[[i]])
+    Results[[i]][paste("fc.",colnames(contrast)[i],sep="")]=c(fc[[i]])
+    print(Results[[i]])
+  }
+
+```
+
+##4.3 Differentially expressed proteins
+
+```{r}
+
+thresh_fc <- 0.5
+thresh_p <- 0.05
+deProt <- Results
+for(i in 1:length(Results)){
+    fc = as.data.frame(deProt[[i]])[,4]
+    p = as.data.frame(deProt[[i]])[,3]
+    dt <-as.data.frame(deProt[[i]])
+    deProt[[i]] <- dt[which(p<=thresh_p & abs(fc)>=thresh_fc),]
+    print(as.data.frame(deProt[[i]]))
+  }
+```
+
+
+
+
+##4.4 Volcano Plot
+
+```{r}
+
+library(ggplot2)
+library(ggrepel)
+
+tresh_fc = 0.5 ## Fold change threshold
+tresh_p = 0.05 ## p.value treshold
+
+
+for(i in 1:nbComp){
+  
+  plotTitle <- substr(colnames(Results[[i]])[2], 9 ,nchar(colnames(Results[[i]])[2]))
+  values <- as.data.frame(Results[[i]])
+  forplot <- data.frame(x=as.numeric(values[,4]), y=-log10(values[,3]), id=as.character(values[,1]))
+  tmp <- forplot[as.numeric(forplot$y)>=-log10(tresh_fc) & abs(forplot$x)>tresh_fc,]
+  p <- ggplot(forplot) + geom_point(aes(x, y , color = ifelse(y>=-log10(tresh_p) & abs(x)>=tresh_fc, "not signi", "FC")),show.legend = F) +
+    scale_color_manual(values = c("blue", "red")) +
+    geom_text_repel(data = subset(forplot, abs(forplot$x)>=tresh_fc & forplot$y>=-log10(tresh_p)),
+                    aes(x,y,label = id),
+                    size = 2) +
+    geom_vline(xintercept = tresh_fc ) +
+    geom_vline(xintercept = -tresh_fc) + 
+    geom_hline(yintercept = -log10(tresh_p)) + 
+    labs(title = plotTitle,x="log2(Fold-change)", y="-log10(P.Value)") + theme_bw() 
+    print(p)
+}
+```
+
+
