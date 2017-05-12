@@ -1,0 +1,110 @@
+---
+title: "Differentially expressed protein analysis of SWATH data using R"
+output: html_notebook
+---
+title: "Differentially expressed protein analysis of SWATH data using R"
+output: html_notebook
+---
+
+This worflow shows how to process data from SWATH-MS protein quantification, in order to study differential expression of the proteins between the different conditions.
+
+The data in this example come from : Bjelosevic S, Pascovici D, Ping H, et.al. Quantitative age-specific variability of plasma proteins in healthy neonates, children and adults. Molecular & Cellular Proteomics (March 23 2017)
+
+#1. loading and visualizing the data 
+```{r}
+data<-read.table("SWATH.example.data.csv", sep=",",header=T, row.names = 1)
+data
+boxplot(data, ylab="Intensity", xlab="samples") 
+hist(as.numeric(unlist(data)), main = "Histogram of Intensity distribution",  xlab = "Intensity")
+```
+
+#2. log transform
+The data is log transformed so that:  
+-the spread is even across the intensity range  
+-the variability stays constant at all intensity levels  
+-the distribution of experimental errors is normal  
+-the distribution of intensity is bell shaped  
+
+```{r}
+data <- log2(data)
+boxplot(data, ylab="Intensity", xlab="samples") 
+hist(as.numeric(unlist(data)), main = "Histogram of Intensity distribution",  xlab = "Intensity")
+```
+
+#3. Normalization
+
+
+```{r}
+norm.data <- scale(data) ##mean center and scaling normalization
+boxplot(norm.data, ylab="Intensity", xlab="samples")
+
+```
+
+
+#4. Differential expression annalysis
+
+```{r}
+Results <- as.data.frame(norm.data)
+Results$control <- rowMeans(norm.data[, c(1:10)])
+Results$less1 <- rowMeans(norm.data[, c(11:20)])
+Results$onetofive <- rowMeans(norm.data[, c(21:30)])
+Results$adult <- rowMeans(norm.data[, c(31:40)])
+Results <- Results[, c(41, 42, 43, 44)]
+d <- data.frame(mean = 1:40, group = 1:40)
+for (i in 1:nrow(norm.data)) {
+  d$mean <- as.numeric(norm.data[i, ])
+  d$group[1:10] <- "control"
+  d$group[11:20] <- "less1"
+  d$group[21:30] <- "onetofive"
+  d$group[31:40] <- "adult"
+  model <- lm(formula = mean ~ group, data = d)
+  Results$p[i] <- anova(model)$"Pr(>F)"
+  print(TukeyHSD(aov(mean ~ group, data = d)))
+}
+Results$FC <-apply(Results[, 1:4], 1, max) - apply(Results[, 1:4], 1, min)
+```
+
+```{r}
+Results
+resultsANOVA <-Results[which(Results$p <= 0.05 & abs(Results$FC) >= 0.5), ]
+resultsANOVA
+```
+
+```{r}
+heat <- as.matrix(data[which(row.names(data) %in% row.names(resultsANOVA)),])
+```
+
+
+
+```{r}
+library(gplots)
+heatmap.2(heat, trace = "none") 
+heatmap.2(as.matrix(data), trace = "none") 
+```
+
+
+```{r}
+library(reshape2)
+heat <- melt(heat)
+names(heat) <- c("protein", "sample", "value")
+
+library(ggplot2)
+ggplot(heat, aes(sample, protein )) +
+  geom_tile(aes(fill = value), color = "white") +
+  scale_fill_gradient(low = "red", high = "steelblue") +
+  ylab("List of genes ") +
+  xlab("List of patients") +
+  theme(legend.title = element_text(size = 10),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size=16),
+        axis.title=element_text(size=14,face="bold"),
+        axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill = "Expression level")
+
+
+
+
+```
+
+
+

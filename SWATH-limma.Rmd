@@ -15,34 +15,11 @@ boxplot(data, ylab="Intensity", xlab="samples")
 hist(as.numeric(unlist(data)), main = "Histogram of Intensity distribution",  xlab = "Intensity")
 ```
 
-#2. log transform
-The data is log transformed so that:  
--the spread is even across the intensity range  
--the variability stays constant at all intensity levels  
--the distribution of experimental errors is normal  
--the distribution of intensity is bell shaped  
-
-```{r}
-data <- log2(data)
-boxplot(data, ylab="Intensity", xlab="samples") 
-hist(as.numeric(unlist(data)), main = "Histogram of Intensity distribution",  xlab = "Intensity")
-```
-
 #3. Normalization
 
-```{r}
-norm.data <- scale(data) ## center and scaling normalization
-boxplot(norm.data, ylab="Intensity", xlab="samples")
+##3.1 design matrix
 
-```
-
-
-#4. Differential expression annalysis
-##4.1 experimental design
-
-In order to perform the pairwise comparison we need to define the experimental design :  
-- the design matrix generated with model.matrix(), which identify which sample belong to which condition.  
-- the contrast matrix generated with makeContrasts(), which define the comparison to perform between the different condition.
+In order to perform the normalization with the limma package we need to define the design matrix generated with model.matrix(), which identify which sample belong to which condition.  :  
 
 
 ```{r}
@@ -57,50 +34,71 @@ design <- model.matrix(~0 + exp.design$condition, data = exp.design)
 colnames(design) <- sort(unique(exp.design$condition))
 row.names(design) <- exp.design$samples
 as.data.frame(design)
+```
 
-library(limma)
+
+```{r}
 contrast <- makeContrasts(adult-control, lessone-control, onetofive-control, adult+lessone+onetofive-control, levels=design)
 as.data.frame(contrast)
 ```
 
-##4.2 Fold change and statistical test calcul
+
+##3.2 applying limma
 
 ```{r}
-  ## in this example there are four pairwise comparaison to perform:  
+library(limma)
+library(edgeR)
 
-
-  nbComp<-ncol(contrast)
-  fc <- list()
-  p.value <- list()
-  adjust.p.value<-list()
-  Results<-list() ## a list of data frames containing the results
-  
-  for (i in 1:nbComp){
-    
-    op<-row.names(contrast)[contrast[,i] == 1 ]
-    ref<-row.names(contrast)[contrast[,i] == -1 ]
-    
-    samplesop <- row.names(design)[row(as.matrix(design[,op]))[design[,op]==1]]
-    samplesref <- row.names(design)[row(as.matrix(design[,ref]))[design[,ref]==1]]
-    
-    colop <- which(colnames(norm.data) %in% samplesop)
-    colref <- which(colnames(norm.data) %in% samplesref)
-    
-    p.value[[i]]<-apply(norm.data,1,function(x){t.test(as.numeric(x[colref]),as.numeric(x[colop]), alternative = "t") $p.value})
-    adjust.p.value[[i]]<-p.adjust(p.value[[i]], method = "BH")
-    
-    fc[[i]]<-rowMeans(norm.data[,colop])-rowMeans(norm.data[,colref])
-    
-    Results[[i]]<-data.frame(protein=c(row.names(norm.data)))
-    Results[[i]][paste("p.value.",colnames(contrast)[i],sep="")]=c(p.value[[i]])
-    Results[[i]][paste("adjust.p.value.",colnames(contrast)[i],sep="")]=c(adjust.p.value[[i]])
-    Results[[i]][paste("fc.",colnames(contrast)[i],sep="")]=c(fc[[i]])
-    print(Results[[i]])
-  }
-
+dge <- DGEList(data)
+dge <- calcNormFactors(dge)
+y <- voom(dge, design)
+norm.data <- y$E
+as.data.frame(norm.data)
+boxplot(norm.data, ylab="Intensity", xlab="samples")
+hist(norm.data, main = "Histogram of Intensity distribution",  xlab = "Intensity")
 ```
 
-##4.3 Differentially expressed proteins
+```{r}
+contrast <- makeContrasts(adult-control, lessone-control, onetofive-control, levels=design)
+as.data.frame(contrast)
+```
+
+
+#4. Differential expression annalysis
+##4.1 fit model
+```{r}
+fit <- lmFit(y, design)
+fit2 <- contrasts.fit(fit, contrast)
+fit2 <- eBayes(fit2)
+```
+
+
+```{r}
+adult.vs.c <- topTable(fit2, coef = "adult - control", n = nrow(fit2))
+lessone.vs.control <- topTable(fit2, coef = "lessone - control", n = nrow(fit2))
+onetofive.vs.control <- topTable(fit2, coef = "onetofive - control", n = nrow(fit2))
+adult.vs.c ; lessone.vs.control ; onetofive.vs.control 
+```
+```{r}
+adult.vs.c$protein <- row.names(adult.vs.c)
+row.names(adult.vs.c) <- NULL
+adult.vs.c <- adult.vs.c[, c(7, 4, 5, 1)]
+
+lessone.vs.control$protein <- row.names(lessone.vs.control)
+row.names(lessone.vs.control) <- NULL
+lessone.vs.control <- lessone.vs.control[, c(7, 4, 5, 1)]
+
+onetofive.vs.control$protein <- row.names(onetofive.vs.control)
+row.names(onetofive.vs.control) <- NULL
+onetofive.vs.control <- onetofive.vs.control[, c(7, 4, 5, 1)]
+
+Results <- list(adult.vs.c, lessone.vs.control, onetofive.vs.control)
+```
+
+
+
+
+##4.2 Differentially expressed proteins
 
 ```{r}
 
@@ -119,7 +117,7 @@ for(i in 1:length(Results)){
 
 
 
-##4.4 Volcano Plot
+##4.3 Volcano Plot
 
 ```{r}
 
@@ -129,8 +127,7 @@ library(ggrepel)
 tresh_fc = 0.5 ## Fold change threshold
 tresh_p = 0.05 ## p.value treshold
 
-
-for(i in 1:nbComp){
+for(i in 1:length(Results)){
   
   plotTitle <- substr(colnames(Results[[i]])[2], 9 ,nchar(colnames(Results[[i]])[2]))
   values <- as.data.frame(Results[[i]])
@@ -147,6 +144,11 @@ for(i in 1:nbComp){
     labs(title = plotTitle,x="log2(Fold-change)", y="-log10(P.Value)") + theme_bw() 
     print(p)
 }
+```
+
+
+```{r}
+boxplot(apply(norm.data,1,sd),apply(scale(log2(data)),1,sd),main = "comparison of the standard deviation \n of the differents normalization techniques", xlab="technique", ylab="standard deviation",names=c("voom", "center and scaling"))
 ```
 
 
