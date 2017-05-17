@@ -1,17 +1,17 @@
 ---
-title: "Differentially expressed protein analysis of SWATH data using R"
+title: "Differentially expressed protein analysis of SWATH data using student's test"
 output: html_notebook
 ---
 
 This worflow shows how to process data from SWATH-MS protein quantification, in order to study differential expression of the proteins between the different conditions.
 
-The data in this example come from : Bjelosevic S, Pascovici D, Ping H, et.al. Quantitative age-specific variability of plasma proteins in healthy neonates, children and adults. Molecular & Cellular Proteomics (March 23 2017). four conditions are compared each conditions have ten replicates :  
+The data in this example come from : Bjelosevic S, Pascovici D, Ping H, et.al. Quantitative age-specific variability of plasma proteins in healthy neonates, children and adults. Molecular & Cellular Proteomics (March 23 2017). Four conditions are compared each conditions have ten replicates :  
 -neonates  
 -child less than one year old  
 -child between 1 and five years old  
 -adults  
 
-146 were identified and quantified. 
+146 proteins were identified and quantified. 
 
 #1. loading and visualizing the data 
 ```{r}
@@ -35,7 +35,8 @@ hist(as.numeric(unlist(data)), main = "Histogram of Intensity distribution",  xl
 ```
 
 #3. Normalization
-Normalization allows to resolve the bias and errors introduced between the samples by the experimental tools or the samples preparation. Normalization relies on the fact that most of the proteins are expected to be expressed the same way between the samples, so it is necessary to remove the differences induced by the experiment to not overestimate the differencial expression. here we use the mean center and scaling normalization : centering assure that the mean of the different samples is equal (set to 0), and scaling sets the standard deviation to 1.
+Normalization allows to resolve the bias and errors introduced between the samples by the experimental tools or the samples preparation. Normalization relies on the fact that most of the proteins are expected to be expressed the same way between the samples, so it is necessary to remove the differences induced by the experiment to not overestimate the differencial expression. here we use the mean center and scaling normalization : centering assure that the mean of the different samples is equal (set to 0), and scaling sets the standard deviation to 1.  
+  
 
 ```{r}
 norm.data <- scale(data) ##mean center and scaling normalization
@@ -48,10 +49,7 @@ boxplot(norm.data, ylab="Intensity", xlab="samples")
 ##4.1 experimental design
 
 In order to perform the pairwise comparison we need to define the experimental design :  
-- the design matrix generated with model.matrix(), which identify which sample belong to which condition.  
-- the contrast matrix generated with makeContrasts(), which define the comparison to perform between the differents conditions.
-
-
+- the design matrix generated with model.matrix(), which identify which sample belong to which condition. 
 ```{r}
 #for this specific data :
 exp.design <- data.frame(samples = colnames(data), condition = 1)
@@ -64,11 +62,18 @@ design <- model.matrix(~0 + exp.design$condition, data = exp.design)
 colnames(design) <- sort(unique(exp.design$condition))
 row.names(design) <- exp.design$samples
 as.data.frame(design)
+```
 
+
+
+- the contrast matrix generated with makeContrasts(), which define the comparison to perform between the differents conditions.
+```{r}
 library(limma)
 contrast <- makeContrasts(adult-control, lessone-control, onetofive-control, adult+lessone+onetofive-control, levels=design)
 as.data.frame(contrast)
 ```
+
+
 
 ##4.2 Fold change and statistical test calcul
 
@@ -110,7 +115,7 @@ The fold change is the mean intensity difference between two condition, a fold c
 
 ##4.3 Differentially expressed proteins
 
-A protein is considered differentially expressed if it's p.value and fold change are superior to a determined threshold.
+A protein is considered differentially expressed if its p.value and fold change are superior to a determined threshold. The fold change represent how much a protein is differentially expressed between two conditions and the p value allows to evaluate the statistical significance of this difference.
 
 ```{r}
 
@@ -129,7 +134,7 @@ for(i in 1:length(Results)){
 
 ##4.4 Volcano Plot
 
-Volcano Plots are the best way to visualise the pvalue and the fold change at the same time. Here the Volcano pllots are generated in a loop from the results list.
+For each pairwise comparison in the results list a volcano plot is created, volcano plots are the best way to visualise the p value and the fold change at the same time.
 
 ```{r}
 

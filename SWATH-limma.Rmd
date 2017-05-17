@@ -1,49 +1,65 @@
 ---
-title: "Differentially expressed protein analysis of SWATH data using R"
+title: "Differentially expressed protein analysis of SWATH data using the LIMMA package"
 output: html_notebook
 ---
 
 This worflow shows how to process data from SWATH-MS protein quantification, in order to study differential expression of the proteins between the different conditions.
 
-The data in this example come from : Bjelosevic S, Pascovici D, Ping H, et.al. Quantitative age-specific variability of plasma proteins in healthy neonates, children and adults. Molecular & Cellular Proteomics (March 23 2017)
+The data in this example come from : Bjelosevic S, Pascovici D, Ping H, et.al. Quantitative age-specific variability of plasma proteins in healthy neonates, children and adults. Molecular & Cellular Proteomics (March 23 2017). Four conditions are compared each conditions have ten replicates :  
+-neonates  
+-child less than one year old  
+-child between 1 and five years old  
+-adults  
+
+146 proteins were identified and quantified. 
+
+Here we gonna use the limma package to perform the normalization of the data and the differential expression annalysis.
+Limma is a Bioconductor package which uses linear model for analysing experiments and the assessment of differential expression.
 
 #1. loading and visualizing the data 
 ```{r}
 data<-read.table("SWATH.example.data.csv", sep=",",header=T, row.names = 1)
 data
-boxplot(data, ylab="Intensity", xlab="samples") 
+boxplot(data, ylab="log2(Intensity)", xlab="samples", main = "distribution of Intensity") 
 hist(as.numeric(unlist(data)), main = "Histogram of Intensity distribution",  xlab = "Intensity")
 ```
 
 #3. Normalization
+##3.1 design and contrast matrix
 
-##3.1 design matrix
-
-In order to perform the normalization with the limma package we need to define the design matrix generated with model.matrix(), which identify which sample belong to which condition.  :  
+In order to perform the normalization with the limma package we need to define the design matrix generated with model.matrix(), which identify which sample belong to which condition.    
 
 
 ```{r}
 #for this specific data :
-exp.design <- data.frame(samples = colnames(data), condition = 1)
+exp.design <- data.frame(samples = colnames(data), condition = 1) ## first we define a matrix containing the experiment design information by associating a sample name with the condition name
 exp.design$condition[1:10] = "control"
 exp.design$condition[11:20] = "lessone"
 exp.design$condition[21:30] = "onetofive"
 exp.design$condition[31:40] = "adult"
 
-design <- model.matrix(~0 + exp.design$condition, data = exp.design)
+design <- model.matrix(~0 + exp.design$condition, data = exp.design) ## model.matrix() use the experiment design to generate a matrix.
 colnames(design) <- sort(unique(exp.design$condition))
 row.names(design) <- exp.design$samples
 as.data.frame(design)
 ```
 
 
+We also need to create a contrast matrix generated with the limma function makeContrast(). This matrix allows to define the comparisons between the differents conditions to perform.
+
 ```{r}
-contrast <- makeContrasts(adult-control, lessone-control, onetofive-control, adult+lessone+onetofive-control, levels=design)
+contrast <- makeContrasts(adult-control, lessone-control, onetofive-control, levels=design)
 as.data.frame(contrast)
 ```
 
 
 ##3.2 applying limma
+
+Now, we can normalise the dataset using the following commands. The calcNormFactors(), calculates the normalization factors to scale the library sizes.
+
+The limma package (since version 3.16.0) offers the voom function that will normalise read counts and apply a linear model to the normalised data before computing moderated t-statistics of differential expression.
+
+The returned data object consists of a few attributes, which you can check using names(y), one of which is the normalised expression (y$E) values in log2 scale.
 
 ```{r}
 library(limma)
@@ -54,31 +70,39 @@ dge <- calcNormFactors(dge)
 y <- voom(dge, design)
 norm.data <- y$E
 as.data.frame(norm.data)
-boxplot(norm.data, ylab="Intensity", xlab="samples")
+boxplot(norm.data, ylab="normalized Intensity", xlab="samples", main = "distribution of the normalized Intensity")
 hist(norm.data, main = "Histogram of Intensity distribution",  xlab = "Intensity")
-```
-
-```{r}
-contrast <- makeContrasts(adult-control, lessone-control, onetofive-control, levels=design)
-as.data.frame(contrast)
 ```
 
 
 #4. Differential expression annalysis
-##4.1 fit model
+##4.1 fitting the model
+
+To fit the model, use the lmFit() function, which takes in the normalised data object and the design matrix:
+
 ```{r}
 fit <- lmFit(y, design)
+```
+
+Refit the model using the comparisons defined:
+```{r}
 fit2 <- contrasts.fit(fit, contrast)
 fit2 <- eBayes(fit2)
 ```
 
 
+##4.2 Extracting the results 
+
+The topTable function summarises the output from limma in a table format.
 ```{r}
 adult.vs.c <- topTable(fit2, coef = "adult - control", n = nrow(fit2))
 lessone.vs.control <- topTable(fit2, coef = "lessone - control", n = nrow(fit2))
 onetofive.vs.control <- topTable(fit2, coef = "onetofive - control", n = nrow(fit2))
-adult.vs.c ; lessone.vs.control ; onetofive.vs.control 
+adult.vs.c ; lessone.vs.control ; onetofive.vs.control
 ```
+
+
+We keep only the values of interest like the p value, the adjusted p value and the fold change to create the volcano plot. The results for the different pairwise comparison are stored in a list of dataframe. 
 ```{r}
 adult.vs.c$protein <- row.names(adult.vs.c)
 row.names(adult.vs.c) <- NULL
@@ -100,6 +124,8 @@ Results <- list(adult.vs.c, lessone.vs.control, onetofive.vs.control)
 
 ##4.2 Differentially expressed proteins
 
+A protein is considered differentially expressed if its p.value and fold change are superior to a determined threshold. The fold change represent how much a protein is differentially expressed between two conditions and the p value allows to evaluate the statistical significance of this difference.
+
 ```{r}
 
 thresh_fc <- 0.5
@@ -118,6 +144,8 @@ for(i in 1:length(Results)){
 
 
 ##4.3 Volcano Plot
+
+For each pairwise comparison in the results list a volcano plot is created, volcano plots are the best way to visualise the p value and the fold change at the same time. 
 
 ```{r}
 
@@ -148,7 +176,7 @@ for(i in 1:length(Results)){
 
 
 ```{r}
-boxplot(apply(norm.data,1,sd),apply(scale(log2(data)),1,sd),main = "comparison of the standard deviation \n of the differents normalization techniques", xlab="technique", ylab="standard deviation",names=c("voom", "center and scaling"))
+boxplot(apply(norm.data,1,sd),apply(scale(log2(data)),1,sd), log(apply(data,1,sd)),main = "comparison of the standard deviation \n of the differents normalization techniques", xlab="technique", ylab="standard deviation",names=c("voom", "center and scaling", "original data"))
 ```
 
 
