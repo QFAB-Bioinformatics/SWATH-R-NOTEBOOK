@@ -39,7 +39,8 @@ hist(as.numeric(unlist(data)), main = "Histogram of Intensity distribution",  xl
 
 #3. Normalization
 
-Normalization allows to resolve the bias and errors introduced between the samples by the experimental tools or the samples preparation. Normalization relies on the fact that most of the proteins are expected to be expressed the same way between the samples, so it is necessary to remove the differences induced by the experiment to not overestimate the differencial expression. here we use the mean center and scaling normalization : centering assure that the mean of the different samples is equal (set to 0), and scaling sets the standard deviation to 1.  
+Normalization allows to resolve the bias and errors introduced between the samples by the experimental tools or the samples preparation. Normalization relies on the fact that most of the proteins are expected to be expressed the same way between the samples, so it is necessary to remove the differences induced by the experiment to not overestimate the differencial expression. here we use the mean center and scaling normalization : centering assure that the mean of the different samples is equal (set to 0), and scaling sets the standard deviation to 1. 
+
 ```{r}
 norm.data <- scale(data) ##mean center and scaling normalization
 boxplot(norm.data, ylab="Intensity", xlab="samples")
@@ -50,7 +51,7 @@ boxplot(norm.data, ylab="Intensity", xlab="samples")
 ##4.1 ANOVA test
 
 The type of ANOVA test to perform is a one-way ANOVA on each protein.
-```{r}
+```{r, warning=FALSE}
 Results <- as.data.frame(norm.data)
 ## Calcul of the mean Intensity for each conditions : 
 Results$control <- rowMeans(norm.data[, c(1:10)])
@@ -62,12 +63,12 @@ Results <- Results[, c(41, 42, 43, 44)]
 
 d <- data.frame(mean = 1:40, group = 1:40)
 for (i in 1:nrow(norm.data)) {
-  d$mean <- as.numeric(norm.data[i, ])
+  d$prot <- as.numeric(norm.data[i, ])
   d$group[1:10] <- "control"
   d$group[11:20] <- "less1"
   d$group[21:30] <- "onetofive"
   d$group[31:40] <- "adult"
-  model <- lm(formula = mean ~ group, data = d)
+  model <- lm(formula = prot ~ group, data = d)
   Results$p[i] <- anova(model)$"Pr(>F)"
   Results$p[i] <- p.adjust(Results$p[i], method = "BH") ## multiple testing correction with de Benjamini Hochberg technique
   # print(TukeyHSD(aov(mean ~ group, data = d)))
@@ -98,13 +99,13 @@ The post hoc analysis is done using the tukey's test to determine the significan
 DEprot <- as.data.frame(data[which(row.names(data) %in% row.names(resultsANOVA)),])
 d <- data.frame(mean = 1:40, group = 1:40)
 for (i in 1:nrow(DEprot)) {
-  d$mean <- as.numeric(DEprot[i, ])
+  d$prot <- as.numeric(DEprot[i, ])
   d$group[1:10] <- "control"
   d$group[11:20] <- "less1"
   d$group[21:30] <- "onetofive"
   d$group[31:40] <- "adult"
   print(paste0(row.names(DEprot[i,]), " :"))
-  print(TukeyHSD(aov(mean ~ group, data = d)))
+  print(TukeyHSD(aov(prot ~ group, data = d)))
 }
 ```
 
@@ -162,3 +163,9 @@ ggplot(heat, aes(sample, protein )) +
     print(p)
 ```
 
+
+```{r}
+res <- row.names(resultsANOVA)
+print(res)
+saveRDS(res, "resANOVA.rds")
+```
